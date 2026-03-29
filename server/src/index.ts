@@ -1,6 +1,6 @@
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 import { PORT } from './constants';
-import { handleCreateGame, handleDisconnect, handleJoinGame, handleReg, handleStartGame } from './handlers';
+import { handleAnswer, handleCreateGame, handleDisconnect, handleJoinGame, handleReg, handleStartGame } from './handlers';
 import { parseIncomingMessage, sendError } from './protocol';
 import { createServerState } from './serverState';
 
@@ -40,7 +40,7 @@ wss.on('connection', (ws: WebSocket) => {
         handleStartGame(state, ws, data);
         return;
       case 'answer':
-        sendError(ws, 'answer will be implemented in Iteration 3.');
+        handleAnswer(state, ws, data);
         return;
       default:
         sendError(ws, `Unknown command: ${type}`);

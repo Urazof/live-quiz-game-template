@@ -2,7 +2,7 @@ import type { WebSocket } from 'ws';
 import { BASE_POINTS, ROUND_RESULT_DELAY_MS } from './constants';
 import { broadcastPlayers, broadcastToGame, getAuthorizedUser, sendError, sendMessage, sendReg } from './protocol';
 import { cleanupGame, clearQuestionTimer, createGameId, createUserId, generateRoomCode, type ServerState } from './serverState';
-import { isCreateGameData, isJoinGameData, isRegData, isStartGameData, validateQuestions } from './validators';
+import { isAnswerData, isCreateGameData, isJoinGameData, isRegData, isStartGameData, validateQuestions } from './validators';
 import type { Game, Player, User } from './types';
 
 export function handleReg(state: ServerState, ws: WebSocket, payload: unknown): void {
@@ -237,6 +237,69 @@ export function handleDisconnect(state: ServerState, ws: WebSocket): void {
   }
 }
 
+export function handleAnswer(state: ServerState, ws: WebSocket, payload: unknown): void {
+  const user = getAuthorizedUser(state, ws);
+  if (!user) {
+    return;
+  }
+
+  if (!isAnswerData(payload)) {
+    sendError(ws, 'Invalid answer payload.');
+    return;
+  }
+
+  const game = state.gamesById.get(payload.gameId);
+  if (!game) {
+    sendError(ws, 'Game not found.');
+    return;
+  }
+
+  if (game.status !== 'in_progress') {
+    sendError(ws, 'Game is not in progress.');
+    return;
+  }
+
+  if (payload.questionIndex !== game.currentQuestion) {
+    sendError(ws, 'Answer is for a non-active question.');
+    return;
+  }
+
+  if (payload.answerIndex < 0 || payload.answerIndex > 3) {
+    sendError(ws, 'answerIndex must be in range 0..3.');
+    return;
+  }
+
+  const userId = user.index;
+  const isPlayerInGame = game.players.some((player) => String(player.index) === userId);
+  if (!isPlayerInGame) {
+    sendError(ws, 'User is not a player in this game.');
+    return;
+  }
+
+  if (String(game.hostId) === userId) {
+    sendError(ws, 'Host cannot submit answers.');
+    return;
+  }
+
+  if (game.playerAnswers.has(userId)) {
+    sendError(ws, 'Answer for this question was already submitted.');
+    return;
+  }
+
+  game.playerAnswers.set(userId, {
+    answerIndex: payload.answerIndex,
+    timestamp: Date.now(),
+  });
+
+  sendMessage(ws, 'answer_accepted', { questionIndex: game.currentQuestion });
+
+  if (allActivePlayersAnswered(game)) {
+    finalizeCurrentQuestion(state, game.id, 'all_answered');
+  }
+}
+
+const finalizingQuestionByGameId = new Set<string>();
+
 function startQuestion(state: ServerState, game: Game): void {
   if (game.status !== 'in_progress') {
     return;
@@ -266,14 +329,22 @@ function startQuestion(state: ServerState, game: Game): void {
 }
 
 function finalizeCurrentQuestion(state: ServerState, gameId: string, _reason: 'timeout' | 'all_answered'): void {
+  if (finalizingQuestionByGameId.has(gameId)) {
+    return;
+  }
+
+  finalizingQuestionByGameId.add(gameId);
+
   const game = state.gamesById.get(gameId);
   if (!game || game.status !== 'in_progress') {
+    finalizingQuestionByGameId.delete(gameId);
     return;
   }
 
   const question = game.questions[game.currentQuestion];
   if (!question) {
     finishGame(state, game);
+    finalizingQuestionByGameId.delete(gameId);
     return;
   }
 
@@ -319,6 +390,7 @@ function finalizeCurrentQuestion(state: ServerState, gameId: string, _reason: 't
 
   if (game.currentQuestion >= game.questions.length - 1) {
     finishGame(state, game);
+    finalizingQuestionByGameId.delete(gameId);
     return;
   }
 
@@ -326,6 +398,8 @@ function finalizeCurrentQuestion(state: ServerState, gameId: string, _reason: 't
   game.questionTimer = setTimeout(() => {
     startQuestion(state, game);
   }, ROUND_RESULT_DELAY_MS);
+
+  finalizingQuestionByGameId.delete(gameId);
 }
 
 function finishGame(state: ServerState, game: Game): void {
@@ -363,4 +437,3 @@ function calculateSpeedPoints(answerTimestamp: number, questionStartTime: number
 
   return Math.floor(Math.max(0, Math.min(BASE_POINTS, rawPoints)));
 }
-

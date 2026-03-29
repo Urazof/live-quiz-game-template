@@ -1,4 +1,4 @@
-import type { CreateGameData, JoinGameData, Question, RegData, StartGameData } from './types';
+import type { AnswerData, CreateGameData, JoinGameData, Question, RegData, StartGameData } from './types';
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -34,6 +34,18 @@ export function isStartGameData(value: unknown): value is StartGameData {
   }
 
   return typeof value.gameId === 'string';
+}
+
+export function isAnswerData(value: unknown): value is AnswerData {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  return typeof value.gameId === 'string'
+    && typeof value.questionIndex === 'number'
+    && Number.isInteger(value.questionIndex)
+    && typeof value.answerIndex === 'number'
+    && Number.isInteger(value.answerIndex);
 }
 
 export function validateQuestions(questions: unknown[]): { ok: true; questions: Question[] } | { ok: false; errorMessage: string } {
@@ -81,4 +93,3 @@ export function validateQuestions(questions: unknown[]): { ok: true; questions: 
 
   return { ok: true, questions: validated };
 }
-
