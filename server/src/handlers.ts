@@ -415,6 +415,9 @@ function finishGame(state: ServerState, game: Game): void {
     }));
 
   broadcastToGame(state, game, 'game_finished', { scoreboard });
+
+  // Cleanup finished game so users can start a new session without reconnect.
+  cleanupGame(state, game);
 }
 
 function allActivePlayersAnswered(game: Game): boolean {
